@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Post</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a href="/posts">All posts</a>
+    <h1>{{ .Title }}</h1>
+    <p>{{ .Body }}</p>
+    <p>Writted by {{ .Author }}</p>
+<a href="/posts/delete/{{.Id}}">Delete this post</a>
+</body>
+</html>
