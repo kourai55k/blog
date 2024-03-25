@@ -18,7 +18,7 @@ type Post struct {
 type User struct {
 	Id         uint   `gorm:"primaryKey"`
 	Name       string `gorm:"not null"`
-	Login      string `gorm:"not null"`
+	Login      string `gorm:"not null;unique"`
 	HashedPass string `gorm:"not null"`
 }
 

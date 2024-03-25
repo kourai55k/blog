@@ -2,10 +2,13 @@ package main
 
 import (
 	. "blog/data"
+	"encoding/hex"
 	"fmt"
+	"github.com/gorilla/sessions"
 	"golang.org/x/crypto/bcrypt"
 	"html/template"
 	"log"
+	"math/rand"
 	"net/http"
 	"strconv"
 )
@@ -29,6 +32,22 @@ func main() {
 	// Создаём обработчик статических файлов CSS
 	fs := http.FileServer(http.Dir("static"))
 	mux.Handle("/static/", http.StripPrefix("/static/", fs))
+
+	// Сессии
+	// Создаем буфер для хранения случайных байтов
+	key := make([]byte, 32)
+
+	// Читаем случайные байты в буфер
+	_, err = rand.Read(key)
+	if err != nil {
+		panic(err)
+	}
+
+	// Преобразуем случайные байты в строку в шестнадцатеричном формате
+	secretKey := hex.EncodeToString(key)
+
+	// Инициализация хранилища сессий с секретным ключом
+	store := sessions.NewCookieStore([]byte(secretKey))
 
 	// Обрабатываем главную страницу
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -107,6 +126,9 @@ func main() {
 		login := r.FormValue("login")
 		pass := r.FormValue("password")
 
+		// Получение или создание сессии
+		session, _ := store.Get(r, "user-session")
+
 		//Берём пароль пользователя из базы данных для аутентификации
 		user, err := GetUserByLogin(db, login)
 		if err != nil {
@@ -119,6 +141,31 @@ func main() {
 			fmt.Println("Password does not match!")
 		} else {
 			fmt.Println("Password matches!")
+			// Аутентификация успешна, установка флага аутентификации в сессии
+			session.Values["authenticated"] = true
+			// Сохранение ID пользователя в сессии
+			session.Values["userId"] = user.Id
+			// Сохранение имени пользователя в сессии
+			session.Values["author"] = user.Name
+
+			err = session.Save(r, w)
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println("Session saved")
+		}
+		http.Redirect(w, r, "/", http.StatusPermanentRedirect)
+	})
+
+	// Обрабатываем GET /logout -- страница для выхода из аккаунта
+	mux.HandleFunc("GET /logout", func(w http.ResponseWriter, r *http.Request) {
+		session, _ := store.Get(r, "user-session")
+		session.Values["authenticated"] = false // Установка флага аутентификации в false
+		session.Values["userId"] = nil          // Очистка ID пользователя из сессии
+		session.Values["author"] = nil          // Очистка имени пользователя из сессии
+		err := session.Save(r, w)
+		if err != nil {
+			log.Fatal(err)
 		}
 		http.Redirect(w, r, "/", http.StatusPermanentRedirect)
 	})
@@ -157,16 +204,49 @@ func main() {
 			log.Fatal(err)
 		}
 
-		// Парсим шаблон из файла
-		tmpl, err := template.ParseFiles("templates/post.html")
-		if err != nil {
-			log.Fatal(err)
-		}
+		userId := data.UserId
 
-		// Запускаем шаблон, передаём в него данные
-		err = tmpl.Execute(w, data)
-		if err != nil {
-			log.Fatal(err)
+		session, err := store.Get(r, "user-session") // Получаем сессию из запроса
+
+		// Проверяем значение аутентифицированности в сессии
+		auth, ok := session.Values["authenticated"].(bool)
+
+		if !auth || !ok {
+			// Парсим шаблон из файла
+			tmpl, err := template.ParseFiles("templates/post.html")
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Запускаем шаблон, передаём в него данные
+			err = tmpl.Execute(w, data)
+			if err != nil {
+				log.Fatal(err)
+			}
+		} else if session.Values["authenticated"].(bool) && session.Values["userId"].(uint) == userId {
+			// Парсим шаблон из файла
+			tmpl, err := template.ParseFiles("templates/authPost.html")
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Запускаем шаблон, передаём в него данные
+			err = tmpl.Execute(w, data)
+			if err != nil {
+				log.Fatal(err)
+			}
+		} else {
+			// Парсим шаблон из файла
+			tmpl, err := template.ParseFiles("templates/post.html")
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Запускаем шаблон, передаём в него данные
+			err = tmpl.Execute(w, data)
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
 	})
 
@@ -191,16 +271,31 @@ func main() {
 		title := r.FormValue("title")
 		body := r.FormValue("body")
 
-		// Создаём объект структуры
-		post := Post{Title: title, Body: body}
-		// Передаём объект в функцию создания новой записи в БД
-		err := CreatePost(db, post)
-		if err != nil {
-			log.Fatal(err)
-		}
+		// Получение или создание сессии
+		session, _ := store.Get(r, "user-session")
 
-		// Перенаправляем на страницу со всеми постами
-		http.Redirect(w, r, "/posts", http.StatusPermanentRedirect)
+		// Аутентификация успешна, установка флага аутентификации в сессии
+		if session.Values["authenticated"] == true {
+			// Получаем ID пользователя из сессии
+			userId := session.Values["userId"].(uint)
+
+			// Получаем имя пользователя из сессии
+			author := session.Values["author"].(string)
+
+			// Создаём объект структуры
+			post := Post{Title: title, Author: author, UserId: userId, Body: body}
+
+			// Передаём объект в функцию создания новой записи в БД
+			err := CreatePost(db, post)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Перенаправляем на страницу со всеми постами
+			http.Redirect(w, r, "/posts", http.StatusPermanentRedirect)
+		} else {
+			http.Redirect(w, r, "/", http.StatusPermanentRedirect)
+		}
 	})
 
 	// Обрабатываем маршрут /posts/delete/{id} -- Удаление поста
@@ -211,11 +306,11 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+
 		err = DeletePost(db, id)
 		if err != nil {
 			log.Fatal(err)
 		}
-
 		http.Redirect(w, r, "/posts", http.StatusPermanentRedirect)
 	})
 

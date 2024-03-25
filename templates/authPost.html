@@ -7,8 +7,11 @@
 </head>
 <body>
 <a href="/posts">All posts</a>
-    <h1>{{ .Title }}</h1>
-    <p>{{ .Body }}</p>
-    <p>Writted by {{ .Author }}</p>
+<h1>{{ .Title }}</h1>
+<p>{{ .Body }}</p>
+<p>Writted by {{ .Author }}</p>
+<form action="/posts/delete/{{ .Id }}">
+    <button type="submit">Delete this post</button>
+</form>
 </body>
 </html>
